@@ -287,9 +287,9 @@ function foot_html() {
     echo '<h2>出典と注意</h2><div class="panel src"><p>都市計画: ' . h($META['source'] ?? '') . '（<a href="' . h($META['source_url'] ?? '') . '">国土交通省</a>）。'
        . '条文: e-Gov法令検索。住所の位置: 国土地理院 地名検索。</p><p>' . h(NOTE_MLIT) . '</p>'
        . '<p>判定は住所の代表点で照らした参考情報で、公的な証明ではありません。建ぺい率の角地緩和・前面道路による容積率の制限・条例による上乗せは含みません。</p></div>';
-    if ($PROMO) echo '<div class="panel"><p><b>不動産会社・設計事務所の方へ</b>　住所から、都市計画に加えて重要事項説明の災害4項目（洪水・内水・高潮・土砂）までまとめて確かめる仕組みを、自社のサーバーに置いて使えます。</p>'
-       . '<p><a class="btn" href="' . h($STORE . '&ref=ktoshikeikaku') . '">重説 災害項目チェックを見る</a> <a class="btn ghost" href="https://exbridge.jp/contact.php?ref=ktoshikeikaku">相談する（無料）</a></p></div>';
-    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer></body></html>';
+    if ($PROMO) echo '<div class="panel"><p><b>このシステムを自社サイトに置く</b>　不動産会社・設計事務所・工務店向けに、全国のデータを作り終えた一式を用意しています。PHP1ファイルとSQLiteだけで動き、用語・市区町村のページも自社サイトの集客に使えます。住所から重要事項説明の災害4項目（洪水・内水・高潮・土砂）まで確かめる仕組みもあります。</p>'
+       . '<p><a class="btn" href="https://kappstore.exbridge.jp/app.php?id=4bb2a5775eaad593&amp;ref=ktoshikeikaku">都市計画ナビを自社に置く</a> <a class="btn ghost" href="' . h($STORE . '&ref=ktoshikeikaku') . '">重説 災害項目チェック</a> <a class="btn ghost" href="https://exbridge.jp/contact.php?ref=ktoshikeikaku">相談する（無料）</a></p></div>';
+    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer><script src="https://kurage.exbridge.jp/partner-bar.js" defer></script></body></html>';   // 再販パートナー募集の枠（kurage_web/partner-bar.js）
 }
 
 function search_box(string $q = '', string $hint = '') {
