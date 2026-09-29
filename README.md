@@ -46,31 +46,31 @@ claude mcp add --transport http ktoshikeikaku https://kurage.exbridge.jp/ktoshik
 - `toshikeikaku_term` … 用語 → 説明と条文の原文（用途地域なら建築基準法 別表第二の該当項も）
 - `toshikeikaku_city` … 市区町村 → 用途地域ごとの面積、建ぺい率・容積率の組み合わせ、市街化区域／市街化調整区域の面積
 
-## 動かし方
+## 置き方（配布ZIP・データ込み）
 
-PHP 8 と PDO SQLite だけで動きます（拡張の rtree は使いません）。
+1. `ktoshikeikaku.php` と `ktoshikeikaku_data/` を、PHP 8 が動く場所に置く（heteml なら、その階層の `.htaccess` に `AddHandler php-script .php`）
+2. `ktoshikeikaku_config.example.php` を `ktoshikeikaku_config.php` にコピーして、必要なら中身を直す
+   - `promo` … false で当社の商品案内を消す
+   - `relay_base` / `model` … AIチャットに使う OpenAI 互換の窓口（Ollama なら `http://<host>:11434/v1`）。空ならAIを使わず、判定結果だけを返す
+3. ブラウザで `https://<あなたのサイト>/ktoshikeikaku.php/` を開く
+
+PHP 8 と PDO SQLite だけで動きます。データベースサーバーも常駐プロセスも要りません（拡張の rtree も使いません）。
+`ktoshikeikaku_data/` は `.htaccess` の `Deny from all` で直読み禁止にしてあります。要る都道府県の `toshi_<都道府県>.sqlite` だけ置いても動き、置いていない県は「未収録」と返します。
+
+## データを作り直す
+
+国土交通省のページから都道府県別の zip を落として1か所に置き、次を実行します。
 
 ```sh
-# 1. データを作る（国交省の都道府県別 zip を build_db.py の RAW に置く）
-/usr/bin/python3 scripts/build_db.py         # → php/ktoshikeikaku_data/toshi_<都道府県>.sqlite, main.sqlite
-/usr/bin/python3 scripts/national_stats.py   # → national.json（全国の集計）
-/usr/bin/python3 scripts/extract_law.py      # → law.json（条文）
-/usr/bin/python3 scripts/terms.py            # → terms.json（用語ページ）
-
-# 2. ローカルで確かめる
-cd php && php -S 127.0.0.1:8000 -t .
-# http://127.0.0.1:8000/ktoshikeikaku.php/
+export KTOSHI_RAW=/path/to/zips                 # <都道府県>.zip を置いた場所
+/usr/bin/python3 scripts/build_db.py            # → toshi_<都道府県>.sqlite, main.sqlite
+/usr/bin/python3 scripts/national_stats.py      # → national.json（全国の集計）
+/usr/bin/python3 scripts/extract_law.py         # → law.json（条文。data/law/*.xml から）
+/usr/bin/python3 scripts/terms.py               # → terms.json（用語ページ）
 ```
 
-- 図形は緯度経度を 1e-7 度の int32 に詰め、1m で間引いて SQLite に入れています。範囲の絞り込みは bbox 列で行います。
-- AIチャットを使うときは、`php/ktoshikeikaku_config.php` に OpenAI 互換の窓口を書きます（無ければチャットは判定結果だけを返します）。
-
-```php
-<?php
-return ['relay_base' => 'https://example.com/v1', 'relay_token' => '...'];
-```
-
-- heteml などで置くときは、`ktoshikeikaku_data/` を `.htaccess` の `Deny from all` で直読み禁止にしてください（同梱しています）。
+図形は緯度経度を 1e-7 度の int32 に詰め、1m で間引いて SQLite に入れています。範囲の絞り込みは bbox 列で行います。
+ローカルで見るときは `cd php && php -S 127.0.0.1:8000 -t .` → `http://127.0.0.1:8000/ktoshikeikaku.php/`。
 
 ## 出典
 

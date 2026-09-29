@@ -7,3 +7,4 @@ php/ktoshikeikaku_data/*.sqlite
 php/ktoshikeikaku_config.php
 outputs_build.log
 __pycache__/
+store/apps_*.json

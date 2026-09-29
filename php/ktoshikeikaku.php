@@ -27,15 +27,17 @@ mb_internal_encoding('UTF-8');
 @include_once __DIR__ . '/simpletrack.php';
 
 $SITE = 'Kurage 都市計画ナビ';
-$SELF = '/ktoshikeikaku.php';
-$ORIGIN = 'https://kurage.exbridge.jp';
 $DIR  = __DIR__ . '/ktoshikeikaku_data';
-$OGP  = 'https://kurage.exbridge.jp/images/ogp/ktoshikeikaku.png';
 $LOGO = 'https://exbridge.jp/images/logo-mark-128.png';
 $GSI  = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
 $CFG  = [];
 if (is_file(__DIR__ . '/ktoshikeikaku_config.php')) { $CFG = (array)(include __DIR__ . '/ktoshikeikaku_config.php'); }
+// 置いた場所に合わせる（自社サーバーに置いたときも canonical・サイトマップが自分のURLになる）
+$SELF = (string)($CFG['self'] ?? ($_SERVER['SCRIPT_NAME'] ?? '/ktoshikeikaku.php'));
+$ORIGIN = (string)($CFG['origin'] ?? ('https://' . ($_SERVER['HTTP_HOST'] ?? 'kurage.exbridge.jp')));
+$OGP  = (string)($CFG['ogp'] ?? ($ORIGIN . '/images/ogp/ktoshikeikaku.png'));
 $STORE = (string)($CFG['store_url'] ?? 'https://kappstore.exbridge.jp/app.php?id=01d71e3bd7f717a8');   // 重説 災害項目チェック
+$PROMO = (bool)($CFG['promo'] ?? true);   // 当社の商品案内を出すか（自社に置くときは false）
 $PREF_NAMES = ['01' => '北海道', '02' => '青森県', '03' => '岩手県', '04' => '宮城県', '05' => '秋田県', '06' => '山形県', '07' => '福島県', '08' => '茨城県', '09' => '栃木県', '10' => '群馬県', '11' => '埼玉県', '12' => '千葉県', '13' => '東京都', '14' => '神奈川県', '15' => '新潟県', '16' => '富山県', '17' => '石川県', '18' => '福井県', '19' => '山梨県', '20' => '長野県', '21' => '岐阜県', '22' => '静岡県', '23' => '愛知県', '24' => '三重県', '25' => '滋賀県', '26' => '京都府', '27' => '大阪府', '28' => '兵庫県', '29' => '奈良県', '30' => '和歌山県', '31' => '鳥取県', '32' => '島根県', '33' => '岡山県', '34' => '広島県', '35' => '山口県', '36' => '徳島県', '37' => '香川県', '38' => '愛媛県', '39' => '高知県', '40' => '福岡県', '41' => '佐賀県', '42' => '長崎県', '43' => '熊本県', '44' => '大分県', '45' => '宮崎県', '46' => '鹿児島県', '47' => '沖縄県'];
 $LAYER_LABEL = ['youto' => '用途地域', 'senbiki' => '区域区分', 'tokei' => '都市計画区域', 'jyuntoshi' => '準都市計画区域',
     'bouka' => '防火地域・準防火地域', 'koudoti' => '高度地区', 'koudori' => '高度利用地区', 'tkbt' => '特別用途地区',
@@ -281,11 +283,11 @@ function head_html(string $title, string $desc, string $canon, array $crumbs = [
 }
 
 function foot_html() {
-    global $META, $STORE;
+    global $META, $STORE, $PROMO;
     echo '<h2>出典と注意</h2><div class="panel src"><p>都市計画: ' . h($META['source'] ?? '') . '（<a href="' . h($META['source_url'] ?? '') . '">国土交通省</a>）。'
        . '条文: e-Gov法令検索。住所の位置: 国土地理院 地名検索。</p><p>' . h(NOTE_MLIT) . '</p>'
        . '<p>判定は住所の代表点で照らした参考情報で、公的な証明ではありません。建ぺい率の角地緩和・前面道路による容積率の制限・条例による上乗せは含みません。</p></div>';
-    echo '<div class="panel"><p><b>不動産会社・設計事務所の方へ</b>　住所から、都市計画に加えて重要事項説明の災害4項目（洪水・内水・高潮・土砂）までまとめて確かめる仕組みを、自社のサーバーに置いて使えます。</p>'
+    if ($PROMO) echo '<div class="panel"><p><b>不動産会社・設計事務所の方へ</b>　住所から、都市計画に加えて重要事項説明の災害4項目（洪水・内水・高潮・土砂）までまとめて確かめる仕組みを、自社のサーバーに置いて使えます。</p>'
        . '<p><a class="btn" href="' . h($STORE . '&ref=ktoshikeikaku') . '">重説 災害項目チェックを見る</a> <a class="btn ghost" href="https://exbridge.jp/contact.php?ref=ktoshikeikaku">相談する（無料）</a></p></div>';
     echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer></body></html>';
 }
@@ -383,18 +385,18 @@ function relevant_quotes(array $r, string $msg): string {
 function ask_ai(string $facts, string $law, string $msg): ?string {
     global $CFG;
     $base = (string)($CFG['relay_base'] ?? ''); $token = (string)($CFG['relay_token'] ?? '');
-    if ($base === '' || $token === '') return null;
+    if ($base === '') return null;   // トークンは Ollama 直なら要らない
     $sys = "あなたは不動産・建築の窓口担当のように、都市計画をやさしく説明する係です。\n"
          . "答えに使ってよいのは【データ】と【条文】だけです。書いていない数字・区域・条例の中身を作ってはいけません。\n"
          . "「建てられる」「できない」と断定せず、最後は市区町村の都市計画課や建築指導課で確かめるよう一言添えてください。\n"
          . "建ぺい率の角地緩和、前面道路による容積率の制限、条例の上乗せはデータに含まれていないので、関係する質問ならそのことを伝えてください。\n"
          . "言葉の意味はこのとおりで、逆にしてはいけません: 建ぺい率＝建築面積÷敷地面積、容積率＝延べ面積÷敷地面積。条文の定義を言い換え直す必要はありません。\n"
          . "日本語で、4〜6文で答えてください。";
-    $body = json_encode(['model' => 'gemma4:12b-it-qat', 'temperature' => 0.2, 'max_tokens' => 700, 'reasoning_effort' => 'none',
+    $body = json_encode(['model' => (string)($CFG['model'] ?? 'gemma4:12b-it-qat'), 'temperature' => 0.2, 'max_tokens' => 700, 'reasoning_effort' => 'none',
         'messages' => [['role' => 'system', 'content' => $sys],
                        ['role' => 'user', 'content' => "【データ】\n{$facts}\n【条文】\n{$law}\n【質問】\n{$msg}"]]], JSON_UNESCAPED_UNICODE);
     $ctx = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 90, 'ignore_errors' => true,
-        'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$token}\r\n", 'content' => $body]]);
+        'header' => "Content-Type: application/json\r\n" . ($token !== '' ? "Authorization: Bearer {$token}\r\n" : ''), 'content' => $body]]);
     $res = @file_get_contents(rtrim($base, '/') . '/chat/completions', false, $ctx);
     if ($res === false) return null;
     $j = json_decode($res, true);

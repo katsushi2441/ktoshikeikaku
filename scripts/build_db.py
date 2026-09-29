@@ -30,7 +30,7 @@ import zipfile
 from collections import defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RAW = "/mnt/data/kminpaku/raw/youto"
+RAW = os.environ.get("KTOSHI_RAW", "/mnt/data/kminpaku/raw/youto")   # 国交省の都道府県別zipの置き場所
 OUTDIR = os.path.join(ROOT, "php", "ktoshikeikaku_data")
 SCALE = 10_000_000
 TOL = 1e-5
