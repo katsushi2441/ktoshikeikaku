@@ -13,7 +13,7 @@
  *   /pref/{コード}             都道府県
  *   /city/{市区町村コード}      市区町村
  *   /chat (POST)              AIチャット（答えの中身は判定結果と条文だけ。AIは言い換えるだけ）
- *   /api?q= /data /about /llms.txt /robots.txt /sitemap.xml
+ *   /api?q= /mcp（AIエージェント用 MCP・Streamable HTTP） /data /about /llms.txt /robots.txt /sitemap.xml
  *
  * 守ること:
  *   - 結論はデータから決める。AIは判定結果と条文の引用を言い換えるだけで、中身を足さない
@@ -424,11 +424,101 @@ if ($path === '/llms.txt') {
        . "- 判定: 結論はデータから規則で作る。AIチャット（ローカルLLM）は判定結果と条文を言い換えるだけ。\n"
        . "- 注意: 出典は「建築確認申請や不動産重要事項説明等の手続に用いることを保証するものではなく、参考情報」。角地の建ぺい率緩和・前面道路幅による容積率の制限・条例の上乗せは含まない。収録外の市区町村は「未収録」で、「区域外」ではない。\n\n"
        . "## よく混同されるもの\n- 建ぺい率（建築面積÷敷地面積）と容積率（延べ面積÷敷地面積）\n- 市街化区域（市街化を進める）と市街化調整区域（市街化を抑える）と、区域区分のない都市計画区域\n- 高度地区（都市計画で定める高さ制限。中身は市区町村ごと）と、低層住居専用地域の絶対高さ制限（建築基準法）\n\n"
-       . "## ページ\n- 住所で調べる: {$ORIGIN}{$SELF}/check?q=住所\n- API(JSON): {$ORIGIN}{$SELF}/api?q=住所\n";
+       . "## ページ\n- 住所で調べる: {$ORIGIN}{$SELF}/check?q=住所\n- API(JSON): {$ORIGIN}{$SELF}/api?q=住所\n"
+       . "- MCP（Streamable HTTP・認証なし）: {$ORIGIN}{$SELF}/mcp　ツール: toshikeikaku_lookup（住所→都市計画）・toshikeikaku_term（用語と条文）・toshikeikaku_city（市区町村の内訳）\n";
     foreach ($TERMS as $s => $t) echo "- {$t['name']}: {$ORIGIN}{$SELF}/yogo/{$s}\n";
     echo "- 都道府県・市区町村: {$ORIGIN}{$SELF}/pref\n";
     exit;
 }
+// ── MCP（AIエージェント向け・Streamable HTTP の最小実装。状態を持たず、1リクエスト=1応答のJSON） ──
+// 接続: claude mcp add --transport http ktoshikeikaku https://kurage.exbridge.jp/ktoshikeikaku.php/mcp
+// 中身は画面・/api と同じ関数を呼ぶだけ。新しい判定経路は作らない。
+function mcp_tools(): array {
+    return [
+        ['name' => 'toshikeikaku_lookup',
+         'description' => '日本の住所（または緯度経度）から、その地点の都市計画を返す: 用途地域・建ぺい率・容積率・市街化区域/市街化調整区域・防火地域・高度地区・地区計画・風致地区・立地適正化計画（居住誘導区域など）・約20m以内の都市計画道路。出典は国土交通省 都市計画決定GISデータ（令和7年度・全国1,377市区町村）。参考情報であり、重要事項説明や建築確認には市区町村の窓口で確認が必要。covered=false は「未収録」で、「区域外」ではない。',
+         'inputSchema' => ['type' => 'object', 'properties' => [
+             'address' => ['type' => 'string', 'description' => '住所（例: 愛知県名古屋市中区三の丸3-1-1）'],
+             'lat' => ['type' => 'number', 'description' => '緯度（address の代わりに使う）'],
+             'lon' => ['type' => 'number', 'description' => '経度（address の代わりに使う）']]]],
+        ['name' => 'toshikeikaku_term',
+         'description' => '都市計画の用語（用途地域13種・建ぺい率・容積率・市街化調整区域・防火地域・高度地区・地区計画など34語）の説明と、都市計画法・建築基準法の条文の原文引用を返す。用途地域なら建築基準法 別表第二の該当項（建てられる/建ててはならない建物）と、全国の建ぺい率・容積率の分布も返す。',
+         'inputSchema' => ['type' => 'object', 'properties' => ['term' => ['type' => 'string', 'description' => '用語（例: 第一種低層住居専用地域、容積率、市街化調整区域）']], 'required' => ['term']]],
+        ['name' => 'toshikeikaku_city',
+         'description' => '市区町村の都市計画の内訳を返す: 用途地域ごとの面積(ha)、建ぺい率・容積率の組み合わせ、市街化区域と市街化調整区域の面積。政令指定都市は市単位（例: 名古屋市）、東京23区は区単位。',
+         'inputSchema' => ['type' => 'object', 'properties' => [
+             'city' => ['type' => 'string', 'description' => '市区町村名（例: 名古屋市、新宿区）か5桁の市区町村コード'],
+             'pref' => ['type' => 'string', 'description' => '都道府県名（同じ名前の市区町村があるとき。例: 東京都）']], 'required' => ['city']]],
+    ];
+}
+
+function mcp_call(string $name, array $a): array {
+    global $TERMS, $QUOTES, $APPDX, $NAT, $db, $ORIGIN, $SELF;
+    if ($name === 'toshikeikaku_lookup') {
+        if (isset($a['lat'], $a['lon'])) return check_point((float)$a['lon'], (float)$a['lat'], (string)($a['address'] ?? ''));
+        $q = trim((string)($a['address'] ?? ''));
+        if ($q === '') throw new InvalidArgumentException('address か lat・lon を指定してください');
+        return check_query(mb_substr($q, 0, 100));
+    }
+    if ($name === 'toshikeikaku_term') {
+        $w = trim((string)($a['term'] ?? '')); $hit = null;
+        foreach ($TERMS as $t) { if ($t['slug'] === $w || $t['name'] === $w) { $hit = $t; break; } }
+        if (!$hit) foreach ($TERMS as $t) { if (mb_strpos($t['name'], $w) !== false || ($w !== '' && mb_strpos($w, $t['name']) !== false)) { $hit = $t; break; } }
+        if (!$hit) return ['found' => false, 'terms' => array_values(array_map(function ($t) { return $t['name']; }, $TERMS))];
+        $out = ['found' => true, 'name' => $hit['name'], 'url' => $ORIGIN . $SELF . '/yogo/' . $hit['slug'], 'lead' => $hit['lead'] ?? '',
+                'law' => array_values(array_filter(array_map(function ($k) use ($QUOTES) { return $QUOTES[$k] ?? null; }, $hit['quotes'] ?? [])))];
+        if (($hit['kind'] ?? '') === 'zone') { $out['appendix2'] = $APPDX[$hit['letter']] ?? null; $out['national'] = $NAT['youto'][$hit['name']] ?? null; }
+        return $out;
+    }
+    if ($name === 'toshikeikaku_city') {
+        $c = trim((string)($a['city'] ?? '')); $p = trim((string)($a['pref'] ?? ''));
+        if (preg_match('/^\d{5}$/', $c)) { $st = $db->prepare('SELECT * FROM city WHERE citycode=?'); $st->execute([$c]); }
+        else { $st = $db->prepare('SELECT * FROM city WHERE city=?' . ($p !== '' ? ' AND pref=?' : '')); $st->execute($p !== '' ? [$c, $p] : [$c]); }
+        $rows = $st->fetchAll();
+        if (!$rows) return ['found' => false, 'note' => '収録していない市区町村です（「区域外」という意味ではありません）'];
+        if (count($rows) > 1) return ['found' => false, 'ambiguous' => array_map(function ($r) { return $r['pref'] . $r['city']; }, $rows), 'note' => 'pref を指定してください'];
+        $r = $rows[0]; $s = jd($r['stats']);
+        return ['found' => true, 'pref' => $r['pref'], 'city' => $r['city'], 'citycode' => $r['citycode'], 'url' => $ORIGIN . $SELF . '/city/' . $r['citycode'],
+                'unit' => 'ha', 'stats' => $s, 'note' => 'youto のキーは「用途地域|建ぺい率|容積率」。国土交通省 都市計画決定GISデータ（令和7年度）を当社で集計した参考値。'];
+    }
+    throw new InvalidArgumentException('知らないツールです: ' . $name);
+}
+
+if ($path === '/mcp') {
+    header('Content-Type: application/json; charset=UTF-8'); header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Accept');
+    $m = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    if ($m === 'OPTIONS') { http_response_code(204); exit; }
+    if ($m !== 'POST') {   // サーバーから押し出す通知は無いので、GET のストリームは開かない（仕様どおり 405）
+        http_response_code(405); header('Allow: POST');
+        echo json_encode(['error' => 'MCP（Streamable HTTP）です。POST で JSON-RPC を送ってください', 'tools' => array_column(mcp_tools(), 'name')], JSON_UNESCAPED_UNICODE); exit;
+    }
+    $req = json_decode((string)file_get_contents('php://input'), true);
+    if (!is_array($req) || !isset($req['method'])) {
+        http_response_code(400); echo json_encode(['jsonrpc' => '2.0', 'id' => null, 'error' => ['code' => -32700, 'message' => 'JSON-RPC として読めません']]); exit;
+    }
+    if (!array_key_exists('id', $req)) { http_response_code(202); exit; }   // 通知（notifications/*）には応答しない
+    $id = $req['id']; $method = $req['method']; $params = (array)($req['params'] ?? []);
+    $res = null; $err = null;
+    try {
+        if ($method === 'initialize') {
+            $res = ['protocolVersion' => (string)($params['protocolVersion'] ?? '2025-06-18'), 'capabilities' => ['tools' => new stdClass()],
+                    'serverInfo' => ['name' => 'ktoshikeikaku', 'title' => 'Kurage 都市計画ナビ', 'version' => '1.0.0'],
+                    'instructions' => '日本の住所から都市計画（用途地域・建ぺい率・容積率・市街化調整区域など）を調べます。結果は参考情報です。covered=false は未収録で、区域外ではありません。'];
+        } elseif ($method === 'ping') { $res = new stdClass(); }
+        elseif ($method === 'tools/list') { $res = ['tools' => mcp_tools()]; }
+        elseif ($method === 'tools/call') {
+            try {
+                $out = mcp_call((string)($params['name'] ?? ''), (array)($params['arguments'] ?? []));
+                $res = ['content' => [['type' => 'text', 'text' => json_encode($out, JSON_UNESCAPED_UNICODE)]], 'isError' => false];
+            } catch (InvalidArgumentException $e) {
+                $res = ['content' => [['type' => 'text', 'text' => $e->getMessage()]], 'isError' => true];
+            }
+        } else { $err = ['code' => -32601, 'message' => 'Method not found: ' . $method]; }
+    } catch (Throwable $e) { $err = ['code' => -32603, 'message' => '内部エラー']; }
+    echo json_encode(['jsonrpc' => '2.0', 'id' => $id] + ($err ? ['error' => $err] : ['result' => $res]), JSON_UNESCAPED_UNICODE); exit;
+}
+
 if ($path === '/api') {
     header('Content-Type: application/json; charset=UTF-8'); header('Access-Control-Allow-Origin: *');
     $q = trim((string)($_GET['q'] ?? ''));
@@ -673,7 +763,10 @@ if ($path === '/about') {
     head_html('このサイトについて｜Kurage 都市計画ナビ', 'Kurage 都市計画ナビは、住所から用途地域・建ぺい率・容積率などの都市計画を調べる参照システムです。何をして何をしないか、データと条文の出典、AIチャットの仕組みを説明します。', '/about', [['このサイトについて', '/about']], $faq);
     echo '<h1>このサイトについて</h1><div class="panel"><p>Kurage 都市計画ナビは、住所を入れると、その地点の都市計画（用途地域・建ぺい率・容積率・市街化区域／市街化調整区域・防火地域・高度地区・地区計画・風致地区・居住誘導区域など）を一度に表示する参照システムです。株式会社エクスブリッジ（名古屋）が作っています。</p>'
        . '<h3>しないこと</h3><ul><li>建てられる・建てられないを断定しません</li><li>条例の中身を要約・解釈しません</li><li>収録していない市区町村を「区域外」と書きません（「未収録」）</li><li>角地の建ぺい率緩和・前面道路による容積率の制限・条例の上乗せは判定に含みません</li></ul>'
-       . '<h3>API</h3><p><code>' . h($ORIGIN . $SELF) . '/api?q=住所</code> で同じ結果を JSON で返します。</p></div>';
+       . '<h3>API</h3><p><code>' . h($ORIGIN . $SELF) . '/api?q=住所</code> で同じ結果を JSON で返します。</p>'
+       . '<h3>MCP（AIエージェントから使う）</h3><p>Claude Code・Claude Desktop・Codex などのAIエージェントから、住所の都市計画・用語と条文・市区町村の内訳を直接引けます。認証は要りません。</p>'
+       . '<div class="scroll-x"><pre style="background:#f5f8fa;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:13px">claude mcp add --transport http ktoshikeikaku ' . h($ORIGIN . $SELF) . '/mcp</pre></div>'
+       . '<p class="src">ツール: toshikeikaku_lookup（住所→都市計画）／toshikeikaku_term（用語と条文の原文）／toshikeikaku_city（市区町村の用途地域の面積など）。ソース: <a href="https://github.com/katsushi2441/ktoshikeikaku">GitHub</a></p></div>';
     echo '<h2>よくある質問</h2>'; foreach ($faq as $f) echo '<div class="panel"><h3 style="margin-top:0">' . h($f[0]) . '</h3><p style="margin:0">' . h($f[1]) . '</p></div>';
     foot_html(); exit;
 }
