@@ -289,7 +289,10 @@ function foot_html() {
        . '<p>判定は住所の代表点で照らした参考情報で、公的な証明ではありません。建ぺい率の角地緩和・前面道路による容積率の制限・条例による上乗せは含みません。</p></div>';
     if ($PROMO) echo '<div class="panel"><p><b>このシステムを自社サイトに置く</b>　不動産会社・設計事務所・工務店向けに、全国のデータを作り終えた一式を用意しています。PHP1ファイルとSQLiteだけで動き、用語・市区町村のページも自社サイトの集客に使えます。住所から重要事項説明の災害4項目（洪水・内水・高潮・土砂）まで確かめる仕組みもあります。</p>'
        . '<p><a class="btn" href="https://kappstore.exbridge.jp/app.php?id=4bb2a5775eaad593&amp;ref=ktoshikeikaku">都市計画ナビを自社に置く</a> <a class="btn ghost" href="' . h($STORE . '&ref=ktoshikeikaku') . '">重説 災害項目チェック</a> <a class="btn ghost" href="https://exbridge.jp/contact.php?ref=ktoshikeikaku">相談する（無料）</a></p></div>';
-    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer><script src="https://kurage.exbridge.jp/partner-bar.js" defer></script></body></html>';   // 再販パートナー募集の枠（kurage_web/partner-bar.js）
+    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer>';
+    // 再販パートナー募集の枠（中身は kurage_web/partner-bar.js）。当社の公開先でだけ読む（配布版を置いたサイトからは当社へ通信しない）
+    if (($_SERVER['HTTP_HOST'] ?? '') === 'kurage.exbridge.jp') echo '<script src="https://kurage.exbridge.jp/partner-bar.js" defer></script>';
+    echo '</body></html>';
 }
 
 function search_box(string $q = '', string $hint = '') {
