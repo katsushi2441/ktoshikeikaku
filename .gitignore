@@ -8,3 +8,4 @@ php/ktoshikeikaku_config.php
 outputs_build.log
 __pycache__/
 store/apps_*.json
+php/ktoshikeikaku_maps/

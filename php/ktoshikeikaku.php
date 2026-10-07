@@ -271,7 +271,7 @@ function head_html(string $title, string $desc, string $canon, array $crumbs = [
        . '.chat textarea{width:100%;min-height:62px;font:inherit;padding:10px;border:2px solid var(--line);border-radius:10px}'
        . 'footer{border-top:1px solid var(--line);background:#fff;padding:18px 0;font-size:13px;color:var(--mut)}'
        . '</style></head><body><header class="top"><div class="wrap"><a class="brand" href="' . h($SELF . '/') . '"><img src="' . h($LOGO) . '" width="32" height="32" alt="株式会社エクスブリッジ">' . h($SITE) . '</a><nav>';
-    foreach (['/' => '住所で調べる', '/yoto' => '用途地域13種', '/yogo/kenpeiritsu' => '建ぺい率', '/yogo/shigaika-chosei-kuiki' => '市街化調整区域', '/pref' => '都道府県・市区町村', '/about' => 'このサイトについて'] as $p => $t) {
+    foreach (['/' => '住所で調べる', '/yoto' => '用途地域13種', '/yogo/kenpeiritsu' => '建ぺい率', '/keisan' => '建ぺい率・容積率の計算', '/yogo/shigaika-chosei-kuiki' => '市街化調整区域', '/pref' => '都道府県・市区町村', '/about' => 'このサイトについて'] as $p => $t) {
         echo '<a href="' . h(u($p)) . '">' . h($t) . '</a>';
     }
     echo '</nav></div></header><main><div class="wrap">';
@@ -411,7 +411,7 @@ if ($path === '/robots.txt') { header('Content-Type: text/plain; charset=UTF-8')
 if ($path === '/sitemap.xml') {
     header('Content-Type: application/xml; charset=UTF-8');
     $lm = date('Y-m-d', (int)@filemtime($DIR . '/main.sqlite'));
-    $urls = ['/', '/yoto', '/pref', '/data', '/about'];
+    $urls = ['/', '/yoto', '/keisan', '/pref', '/data', '/about'];
     foreach ($TERMS as $s => $t) $urls[] = '/yogo/' . $s;
     foreach (array_keys($PREF_NAMES) as $c) $urls[] = '/pref/' . $c;
     foreach ($db->query('SELECT citycode FROM city ORDER BY citycode') as $r) $urls[] = '/city/' . $r['citycode'];
@@ -637,6 +637,7 @@ if ($path === '/check') {
     echo '<h1>' . h($q) . 'の都市計画</h1>';
     search_box($q);
     result_html($r);
+    if (!empty($r['layers']['youto'][0]['bcr'])) echo '<p><a class="btn" href="' . h(u('/keisan') . '?q=' . rawurlencode($q)) . '">この住所で、建てられる広さを計算する</a></p>';
     // 用途地域を調べた人の次の関心は「この土地は災害に強いか」。同じ住所のまま当社の防災システムへ渡す（2026-10-07）。
     // 検索から来た人の3人に1人がこの画面まで来るのに、次に進む導線が無かった。自社に置くとき（promo=false）は出さない。
     if ($PROMO && $q !== '') {
@@ -671,6 +672,83 @@ if (preg_match('#^/yogo/([a-z0-9-]+)$#', $path, $m) && isset($TERMS[$m[1]])) {
     chat_box('', $t['name'] . 'について質問（例: この住所は' . $t['name'] . 'に入っている？）');
     if ($faq) { echo '<h2>よくある質問</h2>'; foreach ($faq as $f) echo '<div class="panel"><h3 style="margin-top:0">' . h($f[0]) . '</h3><p style="margin:0">' . h($f[1]) . '</p></div>'; }
     if (!empty($t['related'])) { echo '<h2>あわせて読む</h2><div class="chips">'; foreach ($t['related'] as $s) { if (isset($TERMS[$s])) echo '<a href="' . h(u('/yogo/' . $s)) . '">' . h($TERMS[$s]['name']) . '</a>'; } echo '</div>'; }
+    foot_html(); exit;
+}
+
+// ── 建ぺい率・容積率の計算（2026-10-07）──────────────────────
+// 「建ぺい率60 容積率200」1,300/月・「容積率 緩和」1,300・「建ぺい率 調べ方」880・「求め方」590 など、
+// 自分の土地にどれだけ建てられるかを知りたい検索の受け皿。緩和の数値は extract_law.py が e-Gov から取った条文どおり。
+// 住所を入れると、その地点の用途地域・建ぺい率・容積率・防火地域を自動で入れる。
+const RES_ZONES = ['第一種低層住居専用地域', '第二種低層住居専用地域', '田園住居地域', '第一種中高層住居専用地域', '第二種中高層住居専用地域', '第一種住居地域', '第二種住居地域', '準住居地域'];
+function keisan(array $in): array {
+    $area = max(0.0, (float)$in['area']); $bcr = (float)$in['bcr']; $far = (float)$in['far'];
+    $res = in_array($in['zone'], RES_ZONES, true) || $in['zone'] === '住居系';
+    $road = (float)$in['road']; $fire = $in['fire']; $taika = !empty($in['taika']); $corner = !empty($in['corner']);
+    $why = [];
+    if ($fire === 'bo' && $bcr >= 80 && $taika) { $bcr_eff = 100; $why[] = ['建築基準法:53:6:1', '建ぺい率80%の地域の防火地域内にある耐火建築物等なので、建ぺい率の制限はかかりません。']; }
+    else {
+        $add = 0;
+        if (($fire === 'bo' && $bcr < 80 && $taika) || ($fire === 'jun' && $taika)) { $add += 10; $why[] = ['建築基準法:53:3:1', ($fire === 'bo' ? '防火地域内の耐火建築物等' : '準防火地域内の耐火建築物等・準耐火建築物等') . 'なので、建ぺい率に10%を足します。']; }
+        if ($corner) { $add += 10; $why[] = ['建築基準法:53:3:2', '角地として特定行政庁が指定した敷地なので、建ぺい率に10%を足します（指定が必要です）。']; }
+        $bcr_eff = min(100, $bcr + $add);
+    }
+    $far_eff = $far; $road_lim = null;
+    if ($road > 0 && $road < 12) {
+        $road_lim = $road * ($res ? 40 : 60);
+        if ($road_lim < $far) { $far_eff = $road_lim; }
+        $why[] = [$res ? ($in['zone'] === '第一種低層住居専用地域' || $in['zone'] === '第二種低層住居専用地域' || $in['zone'] === '田園住居地域' ? '建築基準法:52:2:1' : '建築基準法:52:2:2') : '建築基準法:52:2:3',
+                  '前面道路の幅が' . rtrim(rtrim(number_format($road, 2), '0'), '.') . 'mで12m未満なので、容積率は「幅×' . ($res ? '0.4' : '0.6') . '」＝' . round($road_lim) . '%以下。指定の容積率' . round($far) . '%と比べて'
+                  . ($road_lim < $far ? '小さいほうの' . round($road_lim) . '%になります。' : '指定の' . round($far) . '%のほうが小さいので、そのままです。')];
+    }
+    return ['area' => $area, 'bcr' => $bcr, 'far' => $far, 'bcr_eff' => $bcr_eff, 'far_eff' => $far_eff, 'road_lim' => $road_lim,
+            'build' => $area * $bcr_eff / 100, 'floor' => $area * $far_eff / 100, 'why' => $why, 'res' => $res];
+}
+if ($path === '/keisan') {
+    $in = ['area' => $_GET['area'] ?? '100', 'bcr' => $_GET['bcr'] ?? '60', 'far' => $_GET['far'] ?? '200', 'zone' => (string)($_GET['zone'] ?? '第一種住居地域'),
+           'road' => $_GET['road'] ?? '4', 'fire' => (string)($_GET['fire'] ?? 'none'), 'taika' => !empty($_GET['taika']), 'corner' => !empty($_GET['corner'])];
+    $q = trim((string)($_GET['q'] ?? '')); $from = '';
+    if ($q !== '') {   // 住所から率を入れる
+        $r = check_query(mb_substr($q, 0, 100));
+        if (($r['status'] ?? '') === 'ok' && !empty($r['layers']['youto'][0])) {
+            $y = $r['layers']['youto'][0];
+            $in['zone'] = $y['name']; if ($y['bcr'] !== '') $in['bcr'] = $y['bcr']; if ($y['far'] !== '') $in['far'] = $y['far'];
+            $bk = $r['layers']['bouka'][0]['name'] ?? ''; $in['fire'] = $bk === '防火地域' ? 'bo' : ($bk === '準防火地域' ? 'jun' : 'none');
+            $from = $r['address'] . 'は' . $y['name'] . '（建ぺい率' . ($y['bcr'] ?: '—') . '%・容積率' . ($y['far'] ?: '—') . '%' . ($bk ? '・' . $bk : '') . '）です。';
+        } else { $from = 'この住所の用途地域は見つかりませんでした。数値を手で入れてください。'; }
+    }
+    $k = keisan($in);
+    $is_default = !isset($_GET['area']) && $q === '';
+    if (!$is_default) header('X-Robots-Tag: noindex');   // 入力ごとの結果は索引に入れない（既定の例のページだけ載せる）
+    $faq = [['建ぺい率60%・容積率200%で、100㎡の土地には何㎡まで建てられますか？', '建築面積（建物を真上から見た広さ）は100㎡×60%＝60㎡まで、延べ面積（各階の床面積の合計）は100㎡×200%＝200㎡までです。ただし前面道路の幅が12m未満なら容積率に上限がかかり、住居系の用途地域で道路の幅が4mなら4×0.4＝160%、つまり延べ面積は160㎡までになります（建築基準法第52条第2項）。'],
+            ['角地だと建ぺい率は緩和されますか？', '街区の角にある敷地などで特定行政庁が指定したものは、建ぺい率に10%を足せます（建築基準法第53条第3項第二号）。角地なら必ず緩和されるわけではなく、指定が必要です。指定の基準は市区町村（特定行政庁）ごとに違います。'],
+            ['防火地域・準防火地域だと建ぺい率は緩和されますか？', '防火地域内の耐火建築物等、準防火地域内の耐火建築物等・準耐火建築物等は、建ぺい率に10%を足せます（建築基準法第53条第3項第一号）。建ぺい率80%の地域の防火地域内にある耐火建築物等は、建ぺい率の制限そのものがかかりません（同条第6項第一号）。'],
+            ['自分の土地の建ぺい率・容積率はどう調べますか？', 'このページの住所の欄に住所を入れると、国土交通省の都市計画決定GISデータから用途地域・建ぺい率・容積率・防火地域を引いて計算に入れます。正式には市区町村の都市計画課の窓口や都市計画図で確かめてください。']];
+    head_html('建ぺい率・容積率の計算｜敷地面積から建てられる広さ（角地・防火・前面道路）', '敷地面積と建ぺい率・容積率から、建築面積と延べ面積の上限を計算します。角地・防火地域の緩和（建築基準法第53条）と前面道路による容積率の上限（第52条第2項）も条文どおりに反映。住所を入れると用途地域と率を自動で入れます。', '/keisan', [['建ぺい率・容積率の計算', '/keisan']], $is_default ? $faq : []);
+    echo '<h1>建ぺい率・容積率の計算</h1><p class="lead">敷地面積と建ぺい率・容積率から、建てられる建物の広さ（建築面積と延べ面積の上限）を計算します。角地・防火地域の緩和と、前面道路の幅による容積率の上限も、建築基準法の条文どおりに入れます。</p>';
+    $sel = function ($name, $opts, $cur) { $o = '<select name="' . $name . '" id="' . $name . '" style="width:100%;box-sizing:border-box">'; foreach ($opts as $v => $t) $o .= '<option value="' . h($v) . '"' . ((string)$cur === (string)$v ? ' selected' : '') . '>' . h($t) . '</option>'; return $o . '</select>'; };
+    $zones = []; foreach (array_merge(RES_ZONES, ['近隣商業地域', '商業地域', '準工業地域', '工業地域', '工業専用地域']) as $z) $zones[$z] = $z;
+    echo '<form class="panel" method="get" action="' . h(u('/keisan')) . '">'
+       . '<p style="margin-top:0"><label for="q"><b>住所から入れる</b>（任意）</label><br><input type="text" id="q" name="q" value="' . h($q) . '" placeholder="例: 愛知県安城市御幸本町" style="width:100%;box-sizing:border-box"></p>'
+       . ($from !== '' ? '<p class="src">' . h($from) . '</p>' : '')
+       . '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">'
+       . '<label>敷地面積（㎡）<br><input type="number" style="width:100%;box-sizing:border-box" step="0.01" min="0" name="area" id="area" value="' . h((string)$in['area']) . '"></label>'
+       . '<label>建ぺい率（%）<br><input type="number" style="width:100%;box-sizing:border-box" step="1" min="0" max="100" name="bcr" id="bcr" value="' . h((string)$in['bcr']) . '"></label>'
+       . '<label>容積率（%）<br><input type="number" style="width:100%;box-sizing:border-box" step="10" min="0" name="far" id="far" value="' . h((string)$in['far']) . '"></label>'
+       . '<label>用途地域<br>' . $sel('zone', $zones, $in['zone']) . '</label>'
+       . '<label>前面道路の幅（m）<br><input type="number" style="width:100%;box-sizing:border-box" step="0.1" min="0" name="road" id="road" value="' . h((string)$in['road']) . '"></label>'
+       . '<label>防火の指定<br>' . $sel('fire', ['none' => 'なし', 'jun' => '準防火地域', 'bo' => '防火地域'], $in['fire']) . '</label></div>'
+       . '<p><label><input type="checkbox" name="taika" value="1"' . ($in['taika'] ? ' checked' : '') . '> 耐火建築物等にする（準防火地域なら準耐火建築物等も）</label><br>'
+       . '<label><input type="checkbox" name="corner" value="1"' . ($in['corner'] ? ' checked' : '') . '> 角地として特定行政庁の指定を受けた敷地</label></p>'
+       . '<p style="margin-bottom:0"><button class="btn">計算する</button></p></form>';
+    $f = function ($v) { return rtrim(rtrim(number_format($v, 2), '0'), '.'); };
+    echo '<h2>結果</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">'
+       . '<div class="card"><div class="s">建築面積の上限（建物を真上から見た広さ）</div><div class="v">' . $f($k['build']) . '㎡</div><div class="s">敷地' . $f($k['area']) . '㎡ × 建ぺい率' . $f($k['bcr_eff']) . '%' . ($k['bcr_eff'] != $k['bcr'] ? '（指定' . $f($k['bcr']) . '%から）' : '') . '</div></div>'
+       . '<div class="card"><div class="s">延べ面積の上限（各階の床面積の合計）</div><div class="v">' . $f($k['floor']) . '㎡</div><div class="s">敷地' . $f($k['area']) . '㎡ × 容積率' . $f($k['far_eff']) . '%' . ($k['far_eff'] != $k['far'] ? '（指定' . $f($k['far']) . '%から）' : '') . '</div></div></div>';
+    if ($k['why']) { echo '<h2>計算に入れた決まり</h2>'; foreach ($k['why'] as [$key, $txt]) { echo '<p><b>' . h($txt) . '</b></p>'; quote_block($key); } }
+    echo '<div class="note">この計算に入っていないもの：建ぺい率・容積率の地域ごとの上乗せ（条例・地区計画）、特定行政庁の指定で前面道路の数値が0.6・0.4・0.8に変わる区域（第52条第2項第二号・第三号）、車庫などの延べ面積への不算入、高さ・斜線・日影の制限。実際の設計は建築士と市区町村の窓口で確かめてください。</div>';
+    echo '<h2>もとの決まり</h2>'; quote_block('建築基準法:53:1'); quote_block('建築基準法:52:1'); quote_block('建築基準法:52:2');
+    if ($is_default) { echo '<h2>よくある質問</h2>'; foreach ($faq as $fq) echo '<div class="panel"><h3 style="margin-top:0">' . h($fq[0]) . '</h3><p style="margin:0">' . h($fq[1]) . '</p></div>'; }
+    echo '<p><a href="' . h(u('/yogo/kenpeiritsu')) . '">建ぺい率とは</a>・<a href="' . h(u('/yogo/yosekiritsu')) . '">容積率とは</a>・<a href="' . h(u('/')) . '">住所で用途地域を調べる</a></p>';
     foot_html(); exit;
 }
 
@@ -727,8 +805,18 @@ if (preg_match('#^/city/(\d{5})$#', $path, $m)) {
             [$city . 'に市街化調整区域はありますか？', $sbt > 0 ? ('あります。国土交通省のデータでは、区域区分が定められた範囲のうち約' . round(100 * ($sb['市街化調整区域'] ?? 0) / $sbt) . '%が市街化調整区域です。') : ('国土交通省のデータには、' . $city . 'の区域区分（市街化区域・市街化調整区域）は載っていません。区域区分のない都市計画区域か、データが未整備の可能性があります。')]];
     $dup = $db->prepare('SELECT count(*) c FROM city WHERE city=?'); $dup->execute([$city]);
     $cname = (int)$dup->fetch()['c'] > 1 ? $city . '（' . $pref . '）' : $city;   // 府中市・伊達市のように同じ名前がある
-    head_html($cname . 'の用途地域・都市計画図｜建ぺい率・容積率', $desc, '/city/' . $m[1], [[$pref, '/pref/' . $pc], [$city, '/city/' . $m[1]]], $faq);
-    echo '<h1>' . h($city) . 'の用途地域・都市計画</h1><p class="lead">' . h($pref . $city) . 'の都市計画を、国土交通省の都市計画決定GISデータ（令和7年度）から集計しました。住所を入れると、その地点の用途地域・建ぺい率・容積率がすぐ分かります。</p>';
+    // 市区町村ごとの用途地域マップ（scripts/make_city_maps.py が作る・2026-10-07）。地図がある市区町村は題名にも「マップ」と入れる
+    $map = is_file(__DIR__ . '/ktoshikeikaku_maps/' . $m[1] . '.webp') ? $ORIGIN . rtrim(str_replace('\\', '/', dirname($SELF)), '/') . '/ktoshikeikaku_maps/' . $m[1] . '.webp' : '';
+    if ($map && $zones) {
+        $parts = []; foreach (array_slice($zones, 0, 3, true) as $nm => $ha) $parts[] = $nm . ' ' . round(100 * $ha / max($ztot, 1)) . '%';
+        $desc = $city . '（' . $pref . '）の用途地域マップ。' . implode('・', $parts) . ($sbt > 0 ? '、市街化調整区域は' . round(100 * ($sb['市街化調整区域'] ?? 0) / $sbt) . '%' : '') . '。建ぺい率・容積率の組み合わせと、住所での調べ方を国土交通省のデータで。';
+    }
+    head_html($cname . 'の用途地域' . ($map ? 'マップ' : '') . '・都市計画図｜建ぺい率・容積率', $desc, '/city/' . $m[1], [[$pref, '/pref/' . $pc], [$city, '/city/' . $m[1]]], $faq);
+    echo '<h1>' . h($city) . 'の用途地域' . ($map ? 'マップ' : '') . '・都市計画</h1><p class="lead">' . h($pref . $city) . 'の都市計画を、国土交通省の都市計画決定GISデータ（令和7年度）から集計しました。住所を入れると、その地点の用途地域・建ぺい率・容積率がすぐ分かります。</p>';
+    if ($map) {
+        echo '<figure style="margin:14px 0"><img src="' . h($map) . '" width="1200" height="800" alt="' . h($city) . 'の用途地域マップ（色分けと面積の割合）" style="width:100%;height:auto;border:1px solid #dde3ea;border-radius:10px;background:#fff">'
+           . '<figcaption style="font-size:13px;color:#5b6676;margin-top:6px">' . h($city) . 'の用途地域を色分けした参考図です（国土交通省 都市計画決定GISデータ 令和7年度を加工）。1つの地点の用途地域は、下の欄に住所を入れて調べてください。正式には' . h($city) . 'の都市計画図で確かめてください。</figcaption></figure>';
+    }
     search_box('', $city . 'の住所を入れてください（例: ' . $pref . $city . '…）');
     if ($zones) {
         echo '<h2>' . h($city) . 'の用途地域の内訳（面積）</h2><div class="scroll-x"><table class="t"><tr><th>用途地域</th><th>面積</th><th>割合</th></tr>';
@@ -739,6 +827,7 @@ if (preg_match('#^/city/(\d{5})$#', $path, $m)) {
         foreach (array_slice($combos, 0, 12, true) as $k => $ha) { [$nm, $b, $f] = explode('|', $k);
             echo '<tr><td>' . h($nm) . '</td><td>' . ($b !== '' ? h($b) . '%' : '記載なし') . '</td><td>' . ($f !== '' ? h($f) . '%' : '記載なし') . '</td><td>約' . n($ha) . 'ha</td></tr>'; }
         echo '</table></div>';
+        echo '<p><a href="' . h(u('/keisan')) . '">敷地面積から、建てられる広さ（建築面積・延べ面積）を計算する</a>（角地・防火・前面道路の緩和も条文どおり）</p>';
     } else {
         echo '<div class="panel"><p>国土交通省のデータには、' . h($city) . 'の用途地域は載っていません。用途地域が定められていないか、データが未整備の可能性があります。</p></div>';
     }
