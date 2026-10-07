@@ -637,6 +637,20 @@ if ($path === '/check') {
     echo '<h1>' . h($q) . 'の都市計画</h1>';
     search_box($q);
     result_html($r);
+    // 用途地域を調べた人の次の関心は「この土地は災害に強いか」。同じ住所のまま当社の防災システムへ渡す（2026-10-07）。
+    // 検索から来た人の3人に1人がこの画面まで来るのに、次に進む導線が無かった。自社に置くとき（promo=false）は出さない。
+    if ($PROMO && $q !== '') {
+        $hz = function ($p, $path = '/') use ($q) { return 'https://kurage.exbridge.jp/' . $p . '.php' . $path . '?q=' . rawurlencode($q) . '&ref=ktoshikeikaku-check'; };
+        echo '<h2>この住所の災害リスクも確かめる</h2><div class="panel">'
+           . '<p style="margin-top:0">同じ住所のまま、国や自治体の公開データで調べられます（無料・登録不要）。</p><div class="chips">'
+           . '<a href="' . h($hz('kbousai')) . '">まとめて見る（洪水・土砂・津波・避難所）</a>'
+           . '<a href="' . h($hz('kflood')) . '">洪水・内水の浸水</a>'
+           . '<a href="' . h($hz('khazard')) . '">土砂災害警戒区域</a>'
+           . '<a href="' . h($hz('ktsunami')) . '">津波の浸水</a>'
+           . '<a href="' . h($hz('kriskarea')) . '">災害危険区域（建築制限）</a>'
+           . '</div><p style="margin-bottom:0">不動産の売買・賃貸で重要事項説明をする方へ：災害4項目（洪水・内水・高潮・土砂）を住所からまとめて確かめる'
+           . ' <a href="' . h($hz('kflood', '/juyo')) . '">重説 災害項目チェック</a>（<a href="' . h($STORE . '&ref=ktoshikeikaku-check') . '">自社に置く</a>）</p></div>';
+    }
     chat_box($q, 'この場所について質問（例: 3階建ては建てられる？ お店は開ける？）');
     foot_html(); exit;
 }
