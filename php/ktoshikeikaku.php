@@ -282,6 +282,32 @@ function head_html(string $title, string $desc, string $canon, array $crumbs = [
     }
 }
 
+// 「エクスブリッジについて」の欄（正本は kurage_web/exbridge-about.html。文言・数字はそちらを直してから写す）。
+// 当社のサイト（kurage.exbridge.jp・proto.exbridge.jp・exbridge.jp。www. 付きも可）で動いているときだけ出す。
+// お客さまが自社に置いた版には、当社の会社概要を出さない。
+function exb_about_html() {
+    $host = strtolower(isset($_SERVER['HTTP_HOST']) ? (string)$_SERVER['HTTP_HOST'] : '');
+    $host = (string)preg_replace('/:\d+$/', '', $host);
+    if (strpos($host, 'www.') === 0) $host = substr($host, 4);
+    if (!in_array($host, array('kurage.exbridge.jp', 'proto.exbridge.jp', 'exbridge.jp'), true)) return '';
+    return <<<'EXB_ABOUT'
+<section class="exb-about" style="max-width:1080px;margin:32px auto 0;padding:18px 16px 8px;border-top:1px solid #d6dde3;font-size:13.5px;line-height:1.75;color:#33414d;background:transparent;box-sizing:border-box;text-align:left">
+  <h2 style="font-size:15px;line-height:1.5;margin:0 0 6px;color:#1f2d38;font-weight:700">エクスブリッジについて</h2>
+  <p style="margin:0 0 8px">このページは、名古屋のシステム開発会社・株式会社エクスブリッジが運営しています。AIを使って中小企業の業務システムを作り、保守契約・月額のシステム利用料・要件定義なしで使える買い切りの業務システムを <a href="https://kappstore.exbridge.jp/#ref=exb-about-ktoshikeikaku">Kurage App Store</a> で販売しています。</p>
+  <dl style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0 0 8px">
+    <dt style="font-weight:700">会社名</dt><dd style="margin:0">株式会社エクスブリッジ（EXBRIDGE, Inc.）</dd>
+    <dt style="font-weight:700">所在地</dt><dd style="margin:0">愛知県名古屋市瑞穂区内浜町34-9 305</dd>
+    <dt style="font-weight:700">設立</dt><dd style="margin:0">2004年4月</dd>
+    <dt style="font-weight:700">資本金</dt><dd style="margin:0">1億250万円</dd>
+    <dt style="font-weight:700">代表取締役</dt><dd style="margin:0">小嶋 篤</dd>
+    <dt style="font-weight:700">法人番号</dt><dd style="margin:0">4180001056508</dd>
+    <dt style="font-weight:700">事業</dt><dd style="margin:0">AIを使った業務システムの開発、Kurage App Store の運営、AI-IT顧問</dd>
+  </dl>
+  <p style="margin:0"><a href="https://exbridge.jp/profile.html#ref=exb-about-ktoshikeikaku">会社概要</a>　<a href="https://exbridge.jp/vibeblog/2026-11-03-exbridge-yameta-3tsu-hoshu-getsugaku-youken.html#ref=exb-about-ktoshikeikaku">エクスブリッジがやめた3つ</a>　<a href="https://exbridge.jp/ai-it-komon.html#ref=exb-about-ktoshikeikaku">AI-IT顧問</a>　<a href="https://exbridge.jp/contact.php#ref=exb-about-ktoshikeikaku">お問い合わせ</a></p>
+</section>
+EXB_ABOUT;
+}
+
 function foot_html() {
     global $META, $STORE, $PROMO;
     echo '<h2>出典と注意</h2><div class="panel src"><p>都市計画: ' . h($META['source'] ?? '') . '（<a href="' . h($META['source_url'] ?? '') . '">国土交通省</a>）。'
@@ -289,7 +315,7 @@ function foot_html() {
        . '<p>判定は住所の代表点で照らした参考情報で、公的な証明ではありません。建ぺい率の角地緩和・前面道路による容積率の制限・条例による上乗せは含みません。</p></div>';
     if ($PROMO) echo '<div class="panel"><p><b>このシステムを自社サイトに置く</b>　不動産会社・設計事務所・工務店向けに、全国のデータを作り終えた一式を用意しています。PHP1ファイルとSQLiteだけで動き、用語・市区町村のページも自社サイトの集客に使えます。住所から重要事項説明の災害4項目（洪水・内水・高潮・土砂）まで確かめる仕組みもあります。</p>'
        . '<p><a class="btn" href="https://kappstore.exbridge.jp/app.php?id=4bb2a5775eaad593&amp;ref=ktoshikeikaku">都市計画ナビを自社に置く</a> <a class="btn ghost" href="' . h($STORE . '&ref=ktoshikeikaku') . '">重説 災害項目チェック</a> <a class="btn ghost" href="https://exbridge.jp/contact.php?ref=ktoshikeikaku">相談する（無料）</a></p></div>';
-    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div></footer>';
+    echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div>' . exb_about_html() . '</footer>';
     // 再販パートナー募集の枠（中身は kurage_web/partner-bar.js）。当社の公開先でだけ読む（配布版を置いたサイトからは当社へ通信しない）
     if (($_SERVER['HTTP_HOST'] ?? '') === 'kurage.exbridge.jp') echo '<script src="https://kurage.exbridge.jp/partner-bar.js" defer></script>';
     echo '</body></html>';
