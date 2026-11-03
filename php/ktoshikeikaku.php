@@ -318,6 +318,8 @@ function foot_html() {
     echo '</div></main><footer><div class="wrap">Kurage 都市計画ナビ（ktoshikeikaku）｜株式会社エクスブリッジ（名古屋）｜<a href="' . h(u('/about')) . '">このサイトについて</a>｜<a href="' . h(u('/data')) . '">データ</a>｜<a href="' . h(u('/llms.txt')) . '">llms.txt</a></div>' . exb_about_html() . '</footer>';
     // 再販パートナー募集の枠（中身は kurage_web/partner-bar.js）。当社の公開先でだけ読む（配布版を置いたサイトからは当社へ通信しない）
     if (($_SERVER['HTTP_HOST'] ?? '') === 'kurage.exbridge.jp') echo '<script src="https://kurage.exbridge.jp/partner-bar.js" defer></script>';
+    // 関連する記事（バイブコーディング的仕事ブログ）。AI が引用するこのページからブログへ内部リンク（2026-11-04・当社の公開先だけ）
+    if (($_SERVER['HTTP_HOST'] ?? '') === 'kurage.exbridge.jp' && @include_once __DIR__ . '/vibeblog_related.php') { echo vb_related(['都市計画', '用途地域', '建ぺい率', '不動産', '重要事項説明', 'ハザードマップ'], 'ktoshikeikaku'); }
     echo '</body></html>';
 }
 
